@@ -1,9 +1,17 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
-VisualStudioVersion = 17.14.36511.14 d17.14
+VisualStudioVersion = 17.14.36511.14
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ChatBotApiV2", "ChatBotApiV2\ChatBotApiV2.csproj", "{01EB31B4-1007-499B-AE98-085159E5F630}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Logic", "Logic", "{02EA681E-C7D8-13C7-8484-4AC65E1B71E8}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ClbDatChatbot", "ClbDatChatbot\ClbDatChatbot.csproj", "{42E557EA-9207-4D20-A3DD-BE40B3A1484B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ClbModChatbot", "ClbModChatbot\ClbModChatbot.csproj", "{7A86A6F6-46C8-4205-AD4A-6E5FFA7B7E67}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ClbNegChatbot", "ClbNegChatbot\ClbNegChatbot.csproj", "{72AB52AD-F6E1-4F99-BABB-278F6E3A53E4}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -15,9 +23,26 @@ Global
 		{01EB31B4-1007-499B-AE98-085159E5F630}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{01EB31B4-1007-499B-AE98-085159E5F630}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{01EB31B4-1007-499B-AE98-085159E5F630}.Release|Any CPU.Build.0 = Release|Any CPU
+		{42E557EA-9207-4D20-A3DD-BE40B3A1484B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{42E557EA-9207-4D20-A3DD-BE40B3A1484B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{42E557EA-9207-4D20-A3DD-BE40B3A1484B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{42E557EA-9207-4D20-A3DD-BE40B3A1484B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7A86A6F6-46C8-4205-AD4A-6E5FFA7B7E67}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7A86A6F6-46C8-4205-AD4A-6E5FFA7B7E67}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7A86A6F6-46C8-4205-AD4A-6E5FFA7B7E67}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7A86A6F6-46C8-4205-AD4A-6E5FFA7B7E67}.Release|Any CPU.Build.0 = Release|Any CPU
+		{72AB52AD-F6E1-4F99-BABB-278F6E3A53E4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{72AB52AD-F6E1-4F99-BABB-278F6E3A53E4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{72AB52AD-F6E1-4F99-BABB-278F6E3A53E4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{72AB52AD-F6E1-4F99-BABB-278F6E3A53E4}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{42E557EA-9207-4D20-A3DD-BE40B3A1484B} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
+		{7A86A6F6-46C8-4205-AD4A-6E5FFA7B7E67} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
+		{72AB52AD-F6E1-4F99-BABB-278F6E3A53E4} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {F13864EA-E5B6-46BE-BBAB-0C4B62CA4C16}

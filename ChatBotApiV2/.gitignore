@@ -361,3 +361,19 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Archivos de configuración sensibles
+appsettings.Production.json
+appsettings.Staging.json
+appsettings.Development.json
+.env
+.env.local
+
+# Datos locales
+*.db
+*.sqlite
+LocalDB/
+
+# Logs que pueden contener info sensible
+logs/
+*.log
