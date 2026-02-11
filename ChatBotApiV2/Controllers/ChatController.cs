@@ -6,6 +6,7 @@ using ClbModChatbot;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
+using OllamaSharp;
 
 namespace ChatBotApiV2.Controllers
 {
@@ -15,13 +16,12 @@ namespace ChatBotApiV2.Controllers
     public class ChatController : ControllerBase
     {
         private readonly ClsNegChat _negChat;
-        private readonly HttpClient _httpClient;
+        private readonly IOllamaApiClient _ollamaClient;
         private readonly IConfiguration _configuration;
-
-        public ChatController(ClsNegChat negChat, HttpClient httpClient, IConfiguration configuration)
+        public ChatController(ClsNegChat negChat, IOllamaApiClient ollamaClient, IConfiguration configuration)
         {
             _negChat = negChat;
-            _httpClient = httpClient;
+            _ollamaClient = ollamaClient;
             _configuration = configuration;
         }
 
@@ -63,13 +63,56 @@ namespace ChatBotApiV2.Controllers
                         new { message = "No tienes acceso a los chats de otro usuario" });
                 }
 
-                var result = _negChat.GetChatsWithIdChat(request);
+                var result = _negChat.GetChatWithIdChat(request);
                 return StatusCode(StatusCodes.Status200OK, new { response = result });
             }
             catch (Exception ex)
             {
                 return StatusCode(StatusCodes.Status500InternalServerError, 
                     new { message = "An error occurred while processing your request.", error = ex.Message });
+            }
+        }
+
+        [HttpPost]
+        [Route("getChatMessages")]
+        public IActionResult GetChatMessages([FromBody] ClsModChatRequest request, [FromQuery] int? maxMessages = 50)
+        {
+            try
+            {
+                // Verificar que el usuario autenticado solo pueda acceder a sus propios chats
+                var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrEmpty(currentUserId) || currentUserId != request.IdUser)
+                {
+                    return StatusCode(StatusCodes.Status403Forbidden, 
+                        new { message = "No tienes acceso a los mensajes de otro usuario" });
+                }
+
+                // Validación básica
+                if (string.IsNullOrEmpty(request.IdChat))
+                {
+                    return StatusCode(StatusCodes.Status400BadRequest, 
+                        new { message = "IdChat es requerido" });
+                }
+
+                var messages = _negChat.GetChatMessages(request, maxMessages);
+                
+                return StatusCode(StatusCodes.Status200OK, new { 
+                    success = true,
+                    messages = messages,
+                    totalMessages = messages.Count,
+                    maxMessages = maxMessages,
+                    chatId = request.IdChat,
+                    timestamp = DateTime.UtcNow
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, 
+                    new { 
+                        success = false,
+                        message = "Error obteniendo mensajes del chat", 
+                        error = ex.Message 
+                    });
             }
         }
 
@@ -80,28 +123,20 @@ namespace ChatBotApiV2.Controllers
         {
             try
             {
-                var ollamaUrl = _configuration["Ollama:BaseUrl"] ?? "http://localhost:11434";
-                var response = await _httpClient.GetAsync($"{ollamaUrl}/tags");
+                // Usar OllamaSharp para obtener modelos
+                var models = await _ollamaClient.ListLocalModelsAsync();
                 
-                if (response.IsSuccessStatusCode)
-                {
-                    var content = await response.Content.ReadAsStringAsync();
-                    var modelsData = JsonSerializer.Deserialize<object>(content);
-                    
-                    return Ok(new { 
-                        success = true, 
-                        message = "Modelos obtenidos exitosamente",
-                        models = modelsData
-                    });
-                }
-                else
-                {
-                    return StatusCode((int)response.StatusCode, new { 
-                        success = false, 
-                        message = "Error obteniendo modelos de Ollama",
-                        error = await response.Content.ReadAsStringAsync()
-                    });
-                }
+                return Ok(new { 
+                    success = true, 
+                    message = "Modelos obtenidos exitosamente",
+                    models = models.Select(m => new {
+                        name = m.Name,
+                        size = m.Size,
+                        modified_at = m.ModifiedAt,
+                        digest = m.Digest,
+                        details = m.Details
+                    })
+                });
             }
             catch (HttpRequestException ex)
             {
@@ -121,61 +156,81 @@ namespace ChatBotApiV2.Controllers
             }
         }
 
+        
         [HttpPost]
-        [Route("generate")]
-        public async Task<IActionResult> GenerateResponse([FromBody] ClsModOllamaChatRequest request)
+        [Route("createChat")]
+        public IActionResult CreateNewChat([FromBody] ClsModOllamaChatRequest request)
         {
             try
             {
-                // Verificar que el usuario autenticado solo pueda enviar sus propios mensajes
+                // Verificar que el usuario autenticado solo pueda crear sus propios mensajes
                 var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-                if (string.IsNullOrEmpty(currentUserId) || currentUserId != request.UserId)
+                if (string.IsNullOrEmpty(currentUserId) || currentUserId != request.IdUser)
                 {
-                    return StatusCode(StatusCodes.Status403Forbidden, 
-                        new { message = "No tienes acceso para enviar mensajes como otro usuario" });
+                    return StatusCode(StatusCodes.Status403Forbidden,
+                        new { message = "No tienes acceso para crear chat como otro usuario" });
                 }
 
-                var ollamaUrl = _configuration["Ollama:BaseUrl"] ?? "http://localhost:11434";
-                var defaultModel = _configuration["Ollama:DefaultModel"] ?? "llama3.2";
+                var result = _negChat.CreateNewChat(request);
 
-                // Preparar payload para Ollama
-                var ollamaPayload = new
-                {
-                    model = request.Model ?? defaultModel,
-                    prompt = request.Prompt,
-                    stream = true // Para obtener respuesta completa de una vez
-                };
+                return StatusCode(StatusCodes.Status200OK, new { 
+                    success = true,
+                    message = "Chat creado exitosamente",
+                    response = result
+                });
 
-                var jsonContent = JsonSerializer.Serialize(ollamaPayload);
-                var httpContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+            }
+            catch(Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new { 
+                    success = false,
+                    message = "Error interno creando nuevo chat", 
+                    error = ex.Message 
+                });
+            }
+        }
 
-                // Enviar request a Ollama
-                var response = await _httpClient.PostAsync($"{ollamaUrl}/generate", httpContent);
-                var responseContent = await response.Content.ReadAsStringAsync();
+        /// <summary>
+        /// NUEVO ENDPOINT - Usa /api/chat de Ollama con mensajes estructurados
+        /// </summary>
+        [HttpPost]
+        [Route("chatWithMemory")]
+        public async Task<IActionResult> ChatWithMessages([FromBody] ClsModOllamaChatMessages request)
+        {
+            try
+            {
+                // Obtener el usuario autenticado
+                var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
-                if (response.IsSuccessStatusCode)
-                {
-                    var ollamaResponse = JsonSerializer.Deserialize<ClsModOllamaGenerateResponse>(responseContent);
-                    
-                    // Aquí guardar el chat una vez este implementado, tanto el mensaje del usuario como la respuesta
-                    // await SaveChatToDatabase(request.UserId, request.Prompt, ollamaResponse.response);
+                // lógica a la capa de negocio
+                var result = await _negChat.GenerateResponseWithChatApi(request, currentUserId);
 
-                    return Ok(new { 
-                        success = true,
-                        userPrompt = request.Prompt,
-                        aiResponse = ollamaResponse?.response ?? "Sin respuesta del modelo",
-                        model = request.Model ?? defaultModel,
-                        timestamp = DateTime.UtcNow
-                    });
-                }
-                else
-                {
-                    return StatusCode((int)response.StatusCode, new { 
-                        success = false, 
-                        message = "Error en respuesta de Ollama",
-                        error = responseContent 
-                    });
-                }
+                // Obtener el último mensaje del usuario para mostrarlo en la respuesta
+                var lastUserMessage = request.Messages.LastOrDefault(m => m.Role == "user")?.Content ?? "";
+
+                return Ok(new { 
+                    success = true,
+                    userPrompt = lastUserMessage,
+                    aiResponse = result.message?.Content,
+                    model = result.model,
+                    timestamp = DateTime.UtcNow,
+                    conversationHistory = request.Messages.Count,
+                    endpoint = "/api/chatWithMemory" // Para identificar que usa el endpoint de chat
+                });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new { 
+                    success = false,
+                    message = ex.Message 
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                return StatusCode(StatusCodes.Status400BadRequest, new { 
+                    success = false,
+                    message = ex.Message 
+                });
             }
             catch (HttpRequestException ex)
             {
@@ -185,15 +240,22 @@ namespace ChatBotApiV2.Controllers
                     error = ex.Message 
                 });
             }
+            catch (TaskCanceledException ex)
+            {
+                return StatusCode(StatusCodes.Status408RequestTimeout, new { 
+                    success = false,
+                    message = "Timeout al conectar con Ollama. El modelo puede estar cargando.", 
+                    error = ex.Message 
+                });
+            }
             catch (Exception ex)
             {
                 return StatusCode(StatusCodes.Status500InternalServerError, new { 
                     success = false,
-                    message = "Error interno procesando chat con Ollama", 
+                    message = "Error interno procesando chat con Ollama (Chat API)", 
                     error = ex.Message 
                 });
             }
         }
     }
-
 }

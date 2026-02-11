@@ -8,9 +8,9 @@ namespace ClbModChatbot
 {
     public class ClsModOllamaChatRequest
     {
-        public string UserId { get; set; } = string.Empty;
+        public string IdUser { get; set; } = string.Empty;
         public string Prompt { get; set; } = string.Empty;
         public string? Model { get; set; }
-        public string? ChatId { get; set; }
+        public string? IdChat { get; set; }
     }
 }

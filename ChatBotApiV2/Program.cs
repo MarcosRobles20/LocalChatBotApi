@@ -3,6 +3,7 @@ using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using ChatBotApiV2.Services;
 using ClbNegChatbot;
+using OllamaSharp;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -13,6 +14,13 @@ builder.Services.AddControllers();
 
 // Configurar HttpClient para LLM Studio/Ollama o cualquier otra Ia local que usemos
 builder.Services.AddHttpClient();
+
+// Configurar OllamaSharp - corregir la configuración
+var ollamaUrl = configuration["Ollama:BaseUrl"] ?? "http://localhost:11434";
+builder.Services.AddSingleton<IOllamaApiClient>(provider =>
+{
+    return new OllamaApiClient(ollamaUrl);  // Simplificar la configuración
+});
 
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
@@ -79,15 +87,22 @@ builder.Services.AddAuthorization();
 builder.Services.AddScoped<IJwtService, JwtService>();
 builder.Services.AddScoped<IPasswordService, PasswordService>();
 builder.Services.AddScoped<ClsNegAuth>();
-builder.Services.AddScoped<ClsNegChat>();
+builder.Services.AddScoped<ClsNegChat>(provider => 
+{
+    var configuration = provider.GetRequiredService<IConfiguration>();
+    var ollamaClient = provider.GetRequiredService<IOllamaApiClient>();
+    return new ClsNegChat(configuration, ollamaClient);
+});
 
 // Configurar CORS
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowSpecificOrigin",
-        builder => builder.WithOrigins("http://localhost:4200")
-                          .AllowAnyHeader()
-                          .AllowAnyMethod());
+    options.AddPolicy("AllowAllOrigins", policy =>
+    {
+        policy.AllowAnyOrigin() // Allow all origins
+        .AllowAnyHeader() // Allow all headers
+        .AllowAnyMethod(); // Allow all HTTP methods
+    });
 });
 
 var app = builder.Build();
@@ -101,7 +116,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-app.UseCors("AllowSpecificOrigin");
+app.UseCors("AllowAllOrigins");
 // Agregar middleware de autenticación y autorización
 app.UseAuthentication();
 app.UseAuthorization();
