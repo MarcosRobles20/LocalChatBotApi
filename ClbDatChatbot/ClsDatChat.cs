@@ -105,6 +105,82 @@ namespace ClbDatChatbot
         }
 
         /// <summary>
+        /// Guarda SOLO el mensaje del usuario en la base de datos
+        /// </summary>
+        public long SaveUserMessage(string idChat, string idUser, string userMessage)
+        {
+            try
+            {
+                using var connection = new SqlConnection(GetConnectionString());
+                {
+                    var parameters = new DynamicParameters();
+                    parameters.Add("@IdChat", idChat, DbType.String);
+                    parameters.Add("@IdUser", idUser, DbType.String);
+                    parameters.Add("@UserMessage", userMessage, DbType.String);
+                    parameters.Add("@MessageId", dbType: DbType.Int64, direction: ParameterDirection.Output);
+
+                    connection.Execute("SpdSaveUserMessage", parameters, commandType: CommandType.StoredProcedure);
+
+                    return parameters.Get<long>("@MessageId");
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("Error saving user message", ex);
+            }
+        }
+
+        /// <summary>
+        /// Guarda SOLO la respuesta de la IA en la base de datos
+        /// </summary>
+        public void SaveAiResponse(string idChat, string idUser, string aiResponse, string model)
+        {
+            try
+            {
+                using var connection = new SqlConnection(GetConnectionString());
+                {
+                    var parameters = new DynamicParameters();
+                    parameters.Add("@IdChat", idChat, DbType.String);
+                    parameters.Add("@IdUser", idUser, DbType.String);
+                    parameters.Add("@AiResponse", aiResponse, DbType.String);
+                    parameters.Add("@Model", model, DbType.String);
+
+                    connection.Execute("SpdSaveAiResponse", parameters, commandType: CommandType.StoredProcedure);
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("Error saving AI response", ex);
+            }
+        }
+
+        /// <summary>
+        /// Actualiza la respuesta de la IA (para reemplazar placeholder con respuesta real)
+        /// </summary>
+        public void UpdateAiResponse(string idChat, string aiResponse, string model)
+        {
+            try
+            {
+                using var connection = new SqlConnection(GetConnectionString());
+                {
+                    var parameters = new DynamicParameters();
+                    parameters.Add("@IdChat", idChat, DbType.String);
+                    parameters.Add("@AiResponse", aiResponse, DbType.String);
+                    parameters.Add("@Model", model, DbType.String);
+
+                    connection.Execute("SpdUpdateAiResponse", parameters, commandType: CommandType.StoredProcedure);
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("Error updating AI response", ex);
+            }
+        }
+
+
+
+
+        /// <summary>
         /// Recupera el contexto/historial de un chat para mantener conversación
         /// </summary>
         public List<ClsModChatMessage> GetChatHistory(string idChat, string idUser, int? lastMessages = null)
