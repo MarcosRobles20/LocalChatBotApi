@@ -50,7 +50,7 @@ namespace ClbNegChatbot
                     Success = true,
                     Message = "Login exitoso",
                     Token = token,
-                    ExpiresAt = DateTime.UtcNow.AddMinutes(60),
+                    ExpiresAt = DateTime.Now.AddMinutes(60),
                     User = user
                 };
             }
@@ -110,7 +110,7 @@ namespace ClbNegChatbot
                     Success = true,
                     Message = "Usuario registrado exitosamente",
                     Token = token,
-                    ExpiresAt = DateTime.UtcNow.AddMinutes(60),
+                    ExpiresAt = DateTime.Now.AddMinutes(60),
                     User = user
                 };
             }

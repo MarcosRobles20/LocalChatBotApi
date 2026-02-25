@@ -102,7 +102,7 @@ namespace ChatBotApiV2.Controllers
                     totalMessages = messages.Count,
                     maxMessages = maxMessages,
                     chatId = request.IdChat,
-                    timestamp = DateTime.UtcNow
+                    timestamp = DateTime.Now
                 });
             }
             catch (Exception ex)
@@ -157,41 +157,9 @@ namespace ChatBotApiV2.Controllers
         }
 
         
-        [HttpPost]
-        [Route("createChat")]
-        public IActionResult CreateNewChat([FromBody] ClsModOllamaChatRequest request)
-        {
-            try
-            {
-                // Verificar que el usuario autenticado solo pueda crear sus propios mensajes
-                var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-                if (string.IsNullOrEmpty(currentUserId) || currentUserId != request.IdUser)
-                {
-                    return StatusCode(StatusCodes.Status403Forbidden,
-                        new { message = "No tienes acceso para crear chat como otro usuario" });
-                }
-
-                var result = _negChat.CreateNewChat(request);
-
-                return StatusCode(StatusCodes.Status200OK, new { 
-                    success = true,
-                    message = "Chat creado exitosamente",
-                    response = result
-                });
-
-            }
-            catch(Exception ex)
-            {
-                return StatusCode(StatusCodes.Status500InternalServerError, new { 
-                    success = false,
-                    message = "Error interno creando nuevo chat", 
-                    error = ex.Message 
-                });
-            }
-        }
-
         /// <summary>
-        /// NUEVO ENDPOINT - Usa /api/chat de Ollama con mensajes estructurados
+        /// ENDPOINT PRINCIPAL - Usa /api/chat de Ollama con mensajes estructurados
+        /// Crea automáticamente el chat si no existe (nuevo flujo)
         /// </summary>
         [HttpPost]
         [Route("chatWithMemory")]
@@ -202,7 +170,7 @@ namespace ChatBotApiV2.Controllers
                 // Obtener el usuario autenticado
                 var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
-                // lógica a la capa de negocio
+                // Delegar lógica a la capa de negocio
                 var result = await _negChat.GenerateResponseWithChatApi(request, currentUserId);
 
                 // Obtener el último mensaje del usuario para mostrarlo en la respuesta
@@ -213,9 +181,13 @@ namespace ChatBotApiV2.Controllers
                     userPrompt = lastUserMessage,
                     aiResponse = result.message?.Content,
                     model = result.model,
-                    timestamp = DateTime.UtcNow,
+                    timestamp = DateTime.Now,
                     conversationHistory = request.Messages.Count,
-                    endpoint = "/api/chatWithMemory" // Para identificar que usa el endpoint de chat
+                    endpoint = "/api/chatWithMemory", // Para identificar que usa el endpoint de chat
+                    // Información del chat (creado automáticamente si es necesario)
+                    idChat = result.IdChat,
+                    isNewChat = result.IsNewChat,
+                    chatCreatedAutomatically = result.IsNewChat
                 });
             }
             catch (UnauthorizedAccessException ex)
@@ -255,6 +227,147 @@ namespace ChatBotApiV2.Controllers
                     message = "Error interno procesando chat con Ollama (Chat API)", 
                     error = ex.Message 
                 });
+            }
+        }
+
+
+        /// <summary>
+        /// Generar ID para nuevo chat sin crear en BD (solo para frontend)
+        /// </summary>
+        [HttpGet]
+        [Route("generateChatId")]
+        public IActionResult GenerateChatId()
+        {
+            try
+            {
+                var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrEmpty(currentUserId))
+                {
+                    return StatusCode(StatusCodes.Status401Unauthorized, new { 
+                        success = false,
+                        message = "Usuario no autenticado" 
+                    });
+                }
+
+                var newChatId = Guid.NewGuid().ToString();
+
+                return Ok(new { 
+                    success = true,
+                    message = "ID de chat generado - se creará automáticamente al enviar el primer mensaje",
+                    idChat = newChatId,
+                    userId = currentUserId,
+                    instruction = "Usar este ID en chatWithMemory - el chat se creará automáticamente"
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new { 
+                    success = false,
+                    message = "Error generando ID de chat", 
+                    error = ex.Message 
+                });
+            }
+        }
+
+        /// <summary>
+        /// Endpoint SSE (Server-Sent Events) que transmite la respuesta de la IA en tiempo real,
+        /// separando el Chain-of-Thought (CoT) de la respuesta final.
+        /// <para>
+        /// <b>Protocolo SSE:</b> Cada evento se emite en formato <c>data: {json}\n\n</c>.
+        /// El cliente debe leer el stream con <c>fetch</c> + <c>ReadableStream</c>
+        /// (NO usar <c>EventSource</c> ya que requiere POST + Authorization header).
+        /// </para>
+        /// <para>
+        /// <b>Secuencia de eventos emitidos:</b>
+        /// <code>
+        /// data: {"type":"thinking_start"}
+        ///
+        /// data: {"type":"thinking","content":"texto del razonamiento..."}
+        /// ... (múltiples chunks de thinking)
+        ///
+        /// data: {"type":"thinking_end"}
+        ///
+        /// data: {"type":"response","content":"texto de la respuesta..."}
+        /// ... (múltiples chunks de response)
+        ///
+        /// data: {"type":"done","idChat":"abc-123","isNewChat":false,"model":"qwen3:8b"}
+        /// </code>
+        /// En caso de error:
+        /// <code>
+        /// data: {"type":"error","error":"mensaje del error"}
+        /// </code>
+        /// </para>
+        /// <para>
+        /// <b>Headers de respuesta:</b>
+        /// <list type="bullet">
+        ///   <item><c>Content-Type: text/event-stream</c></item>
+        ///   <item><c>Cache-Control: no-cache</c></item>
+        ///   <item><c>X-Accel-Buffering: no</c> — Deshabilita buffering en Nginx</item>
+        /// </list>
+        /// </para>
+        /// <para>
+        /// <b>Modelos compatibles con CoT:</b> Qwen3, DeepSeek-R1, DeepSeek-v3.1, GPT-OSS.
+        /// Modelos sin CoT solo emitirán chunks de tipo <c>response</c> y <c>done</c>.
+        /// </para>
+        /// </summary>
+        /// <remarks>
+        /// Ejemplo de consumo desde Angular/JavaScript:
+        /// <code>
+        /// const response = await fetch('/api/chat/chatStream', {
+        ///   method: 'POST',
+        ///   headers: {
+        ///     'Content-Type': 'application/json',
+        ///     'Authorization': `Bearer ${token}`
+        ///   },
+        ///   body: JSON.stringify({
+        ///     idChat: '',
+        ///     idUser: 'user-id',
+        ///     messages: [{ role: 'user', content: 'mensaje' }]
+        ///   })
+        /// });
+        ///
+        /// const reader = response.body.getReader();
+        /// // Leer chunks y parsear líneas "data: {...}"
+        /// </code>
+        /// </remarks>
+        [HttpPost]
+        [Route("chatStream")]
+        public async Task ChatStream([FromBody] ClsModOllamaChatMessages request)
+        {
+            var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+            Response.Headers.Append("Content-Type", "text/event-stream");
+            Response.Headers.Append("Cache-Control", "no-cache");
+            Response.Headers.Append("X-Accel-Buffering", "no");
+
+            async Task SendChunk(ClsModStreamChunk chunk)
+            {
+                var json = JsonSerializer.Serialize(chunk, new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                });
+                await Response.WriteAsync($"data: {json}\n\n");
+                await Response.Body.FlushAsync();
+            }
+
+            try
+            {
+                await foreach (var chunk in _negChat.GenerateStreamResponse(request, currentUserId))
+                {
+                    await SendChunk(chunk);
+                }
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                await SendChunk(new ClsModStreamChunk { Type = "error", Error = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                await SendChunk(new ClsModStreamChunk { Type = "error", Error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                await SendChunk(new ClsModStreamChunk { Type = "error", Error = $"Error interno: {ex.Message}" });
             }
         }
     }
