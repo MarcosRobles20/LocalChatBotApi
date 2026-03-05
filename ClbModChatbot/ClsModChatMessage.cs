@@ -16,6 +16,6 @@ namespace ClbModChatbot
         public bool IsDeleted { get; set; } = false;
         public string UserMessage => Role == "user" ? Content : string.Empty;
         public string AiResponse => Role == "assistant" ? Content : string.Empty;
-        
+        public string? Kind { get; set; }
     }
 }

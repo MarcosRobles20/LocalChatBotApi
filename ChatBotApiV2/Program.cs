@@ -15,12 +15,24 @@ builder.Services.AddControllers();
 // Configurar HttpClient para LLM Studio/Ollama o cualquier otra Ia local que usemos
 builder.Services.AddHttpClient();
 
+// Register IaProxyClient HttpClient
+builder.Services.AddHttpClient("PythonAi");
+
 // Configurar OllamaSharp - corregir la configuración
 var ollamaUrl = configuration["Ollama:BaseUrl"] ?? "http://localhost:11434";
 builder.Services.AddSingleton<IOllamaApiClient>(provider =>
 {
     return new OllamaApiClient(ollamaUrl);  // Simplificar la configuración
 });
+
+// Register IIaProxyClient with scoped lifetime so ILogger is provided by DI
+builder.Services.AddScoped<IIaProxyClient, IaProxyClient>();
+
+// Register ChatSseProxyService
+builder.Services.AddScoped<IChatSseProxyService, ChatSseProxyService>();
+
+// Register ChatOrchestrator
+builder.Services.AddScoped<IChatOrchestrator, ChatOrchestrator>();
 
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();

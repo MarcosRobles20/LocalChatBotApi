@@ -107,7 +107,7 @@ namespace ClbDatChatbot
         /// <summary>
         /// Guarda SOLO el mensaje del usuario en la base de datos
         /// </summary>
-        public long SaveUserMessage(string idChat, string idUser, string userMessage)
+        public long SaveUserMessage(string idChat, string idUser, string userMessage, string Kind)
         {
             try
             {
@@ -118,6 +118,7 @@ namespace ClbDatChatbot
                     parameters.Add("@IdUser", idUser, DbType.String);
                     parameters.Add("@UserMessage", userMessage, DbType.String);
                     parameters.Add("@MessageId", dbType: DbType.Int64, direction: ParameterDirection.Output);
+                    parameters.Add("@Kind", Kind, DbType.String);
 
                     connection.Execute("SpdSaveUserMessage", parameters, commandType: CommandType.StoredProcedure);
 
@@ -133,7 +134,7 @@ namespace ClbDatChatbot
         /// <summary>
         /// Guarda SOLO la respuesta de la IA en la base de datos
         /// </summary>
-        public void SaveAiResponse(string idChat, string idUser, string aiResponse, string model)
+        public void SaveAiResponse(string idChat, string idUser, string aiResponse, string model, string kind = "text")
         {
             try
             {
@@ -144,6 +145,7 @@ namespace ClbDatChatbot
                     parameters.Add("@IdUser", idUser, DbType.String);
                     parameters.Add("@AiResponse", aiResponse, DbType.String);
                     parameters.Add("@Model", model, DbType.String);
+                    parameters.Add("@Kind", kind, DbType.String);
 
                     connection.Execute("SpdSaveAiResponse", parameters, commandType: CommandType.StoredProcedure);
                 }

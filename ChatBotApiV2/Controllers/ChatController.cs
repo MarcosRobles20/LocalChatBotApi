@@ -7,6 +7,8 @@ using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using OllamaSharp;
+using ChatBotApiV2.Services;
+using Microsoft.Extensions.Logging;
 
 namespace ChatBotApiV2.Controllers
 {
@@ -18,11 +20,15 @@ namespace ChatBotApiV2.Controllers
         private readonly ClsNegChat _negChat;
         private readonly IOllamaApiClient _ollamaClient;
         private readonly IConfiguration _configuration;
-        public ChatController(ClsNegChat negChat, IOllamaApiClient ollamaClient, IConfiguration configuration)
+        private readonly IChatOrchestrator? _chatOrchestrator;
+        private readonly ILogger<ChatController> _logger;
+        public ChatController(ClsNegChat negChat, IOllamaApiClient ollamaClient, IConfiguration configuration, IChatOrchestrator? chatOrchestrator, ILogger<ChatController> logger)
         {
             _negChat = negChat;
             _ollamaClient = ollamaClient;
             _configuration = configuration;
+            _chatOrchestrator = chatOrchestrator;
+            _logger = logger;
         }
 
         [HttpPost]
@@ -104,7 +110,7 @@ namespace ChatBotApiV2.Controllers
                     chatId = request.IdChat,
                     timestamp = DateTime.Now
                 });
-            }
+            }                                    
             catch (Exception ex)
             {
                 return StatusCode(StatusCodes.Status500InternalServerError, 
@@ -352,6 +358,16 @@ namespace ChatBotApiV2.Controllers
 
             try
             {
+                if (_chatOrchestrator is not null)
+                {
+                    await foreach (var chunk in _chatOrchestrator.StreamViaProxyAsync(request, currentUserId, HttpContext.RequestAborted))
+                    {
+                        await SendChunk(chunk);
+                    }
+                    return;
+                }
+
+                // Fallback: existing internal streaming
                 await foreach (var chunk in _negChat.GenerateStreamResponse(request, currentUserId))
                 {
                     await SendChunk(chunk);
