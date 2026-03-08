@@ -40,6 +40,7 @@ namespace ChatBotApiV2.Services
             await _negChat.SaveUserMessageAsync(request.IdChat, request.IdUser, lastUserMessage, request.Kind);
 
             // 3. Build context (history + system prompt) using existing business logic
+            //temporalmente deshabilitado, ya que langgraph y langchain manejan mejor el contexto
             var ollamaContext = _negChat.BuildOllamaContextPublic(request.IdChat, request.IdUser, lastUserMessage, isNewChat);
 
             // Map Ollama context messages to ClsModOllamaChatMessages.Messages so Python receives the same history
@@ -55,7 +56,7 @@ namespace ChatBotApiV2.Services
             foreach (var msg in ollamaContext)
             {
                 // msg.Role is an enum ChatRole
-                var role = msg.Role.ToString().ToLower();
+                var role = msg.Role?.ToString().ToLower();
                 payloadForProxy.Messages.Add(new ClsModChatMessageItem { Role = role, Content = msg.Content });
             }
 
@@ -65,7 +66,10 @@ namespace ChatBotApiV2.Services
                 text = null, // enviar solo messages como contexto
                 messages = payloadForProxy.Messages,
                 model = request.Model,
-                tool_hint = null // se puede setear si el cliente lo envía en otra capa
+                tool_hint = null, // se puede setear si el cliente lo envía en otra capa
+                idChat = request.IdChat,
+                session_id = null,
+                isNewChat = isNewChat
             };
 
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();

@@ -13,7 +13,9 @@ namespace ChatBotApiV2.Models
         public string? model { get; set; }
         public object? providerPreference { get; set; } // string or array
         public string? tool_hint { get; set; }
+        public string? idChat { get; set; }
         public string? session_id { get; set; }
+        public bool isNewChat { get; set; }
     }
 
     public sealed class OrchestrateResponseDto

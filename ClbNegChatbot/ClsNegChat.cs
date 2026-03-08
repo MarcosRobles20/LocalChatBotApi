@@ -356,7 +356,7 @@ namespace ClbNegChatbot
 
             if (!isNewChat)
             {
-                var history = _datChat.GetChatHistory(idChat, idUser, 10);
+                var history = _datChat.GetChatHistory(idChat, idUser, 0);
 
                 // Cada fila de BD es un mensaje individual (user O assistant), no un par.
                 // Se excluye el último registro porque es el mensaje recién guardado sin respuesta aún.

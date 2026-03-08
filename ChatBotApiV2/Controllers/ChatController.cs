@@ -6,7 +6,6 @@ using ClbModChatbot;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
-using OllamaSharp;
 using ChatBotApiV2.Services;
 using Microsoft.Extensions.Logging;
 
@@ -14,18 +13,17 @@ namespace ChatBotApiV2.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    [Authorize] // Requerir autenticación para todos los endpoints
+    [Authorize]
     public class ChatController : ControllerBase
     {
         private readonly ClsNegChat _negChat;
-        private readonly IOllamaApiClient _ollamaClient;
         private readonly IConfiguration _configuration;
         private readonly IChatOrchestrator? _chatOrchestrator;
         private readonly ILogger<ChatController> _logger;
-        public ChatController(ClsNegChat negChat, IOllamaApiClient ollamaClient, IConfiguration configuration, IChatOrchestrator? chatOrchestrator, ILogger<ChatController> logger)
+
+        public ChatController(ClsNegChat negChat, IConfiguration configuration, IChatOrchestrator? chatOrchestrator, ILogger<ChatController> logger)
         {
             _negChat = negChat;
-            _ollamaClient = ollamaClient;
             _configuration = configuration;
             _chatOrchestrator = chatOrchestrator;
             _logger = logger;
@@ -125,115 +123,13 @@ namespace ChatBotApiV2.Controllers
         [HttpGet]
         [Route("models")]
         [AllowAnonymous] // Permitir acceso sin autenticación para este endpoint
-        public async Task<IActionResult> GetAvailableModels()
+        public IActionResult GetAvailableModels()
         {
-            try
+            return StatusCode(StatusCodes.Status501NotImplemented, new
             {
-                // Usar OllamaSharp para obtener modelos
-                var models = await _ollamaClient.ListLocalModelsAsync();
-                
-                return Ok(new { 
-                    success = true, 
-                    message = "Modelos obtenidos exitosamente",
-                    models = models.Select(m => new {
-                        name = m.Name,
-                        size = m.Size,
-                        modified_at = m.ModifiedAt,
-                        digest = m.Digest,
-                        details = m.Details
-                    })
-                });
-            }
-            catch (HttpRequestException ex)
-            {
-                return StatusCode(StatusCodes.Status503ServiceUnavailable, new { 
-                    success = false,
-                    message = "No se pudo conectar con Ollama. ¿Está ejecutándose?", 
-                    error = ex.Message 
-                });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(StatusCodes.Status500InternalServerError, new { 
-                    success = false,
-                    message = "Error interno al conectar con Ollama", 
-                    error = ex.Message 
-                });
-            }
-        }
-
-        
-        /// <summary>
-        /// ENDPOINT PRINCIPAL - Usa /api/chat de Ollama con mensajes estructurados
-        /// Crea automáticamente el chat si no existe (nuevo flujo)
-        /// </summary>
-        [HttpPost]
-        [Route("chatWithMemory")]
-        public async Task<IActionResult> ChatWithMessages([FromBody] ClsModOllamaChatMessages request)
-        {
-            try
-            {
-                // Obtener el usuario autenticado
-                var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-
-                // Delegar lógica a la capa de negocio
-                var result = await _negChat.GenerateResponseWithChatApi(request, currentUserId);
-
-                // Obtener el último mensaje del usuario para mostrarlo en la respuesta
-                var lastUserMessage = request.Messages.LastOrDefault(m => m.Role == "user")?.Content ?? "";
-
-                return Ok(new { 
-                    success = true,
-                    userPrompt = lastUserMessage,
-                    aiResponse = result.message?.Content,
-                    model = result.model,
-                    timestamp = DateTime.Now,
-                    conversationHistory = request.Messages.Count,
-                    endpoint = "/api/chatWithMemory", // Para identificar que usa el endpoint de chat
-                    // Información del chat (creado automáticamente si es necesario)
-                    idChat = result.IdChat,
-                    isNewChat = result.IsNewChat,
-                    chatCreatedAutomatically = result.IsNewChat
-                });
-            }
-            catch (UnauthorizedAccessException ex)
-            {
-                return StatusCode(StatusCodes.Status403Forbidden, new { 
-                    success = false,
-                    message = ex.Message 
-                });
-            }
-            catch (ArgumentException ex)
-            {
-                return StatusCode(StatusCodes.Status400BadRequest, new { 
-                    success = false,
-                    message = ex.Message 
-                });
-            }
-            catch (HttpRequestException ex)
-            {
-                return StatusCode(StatusCodes.Status503ServiceUnavailable, new { 
-                    success = false,
-                    message = "No se pudo conectar con Ollama. ¿Está ejecutándose?", 
-                    error = ex.Message 
-                });
-            }
-            catch (TaskCanceledException ex)
-            {
-                return StatusCode(StatusCodes.Status408RequestTimeout, new { 
-                    success = false,
-                    message = "Timeout al conectar con Ollama. El modelo puede estar cargando.", 
-                    error = ex.Message 
-                });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(StatusCodes.Status500InternalServerError, new { 
-                    success = false,
-                    message = "Error interno procesando chat con Ollama (Chat API)", 
-                    error = ex.Message 
-                });
-            }
+                success = false,
+                message = "La obtención de modelos locales fue deshabilitada. Usa el IA Proxy Service para información de modelos."
+            });
         }
 
 
@@ -365,12 +261,6 @@ namespace ChatBotApiV2.Controllers
                         await SendChunk(chunk);
                     }
                     return;
-                }
-
-                // Fallback: existing internal streaming
-                await foreach (var chunk in _negChat.GenerateStreamResponse(request, currentUserId))
-                {
-                    await SendChunk(chunk);
                 }
             }
             catch (UnauthorizedAccessException ex)
