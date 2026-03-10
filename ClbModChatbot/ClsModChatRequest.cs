@@ -8,8 +8,8 @@ namespace ClbModChatbot
 {
     public class ClsModChatRequest
     {
-        public string? IdChat { set; get; }
-        public string? IdUser { set; get; }
+        public string IdChat { set; get; } = string.Empty;
+        public string IdUser { set; get; } = string.Empty;
 
     }
 }

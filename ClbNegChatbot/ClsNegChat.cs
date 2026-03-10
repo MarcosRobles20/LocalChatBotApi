@@ -77,7 +77,7 @@ namespace ClbNegChatbot
             request.IdChat = idChat;
 
             var lastUserMessage = request.Messages.LastOrDefault(m => m.Role == "user")?.Content ?? "";
-            await PersistUserMessageAsync(request.IdChat, request.IdUser, lastUserMessage);
+            await PersistUserMessageAsync(request.IdChat, request.IdUser, lastUserMessage, request.Kind);
 
             var ollamaMessages = BuildOllamaContext(request.IdChat, request.IdUser, lastUserMessage, isNewChat);
 
@@ -187,7 +187,7 @@ namespace ClbNegChatbot
             stepError = null;
             try
             {
-                await PersistUserMessageAsync(request.IdChat, request.IdUser, lastUserMessage);
+                await PersistUserMessageAsync(request.IdChat, request.IdUser, lastUserMessage, request.Kind);
             }
             catch (Exception ex)
             {
@@ -319,12 +319,13 @@ namespace ClbNegChatbot
         private async Task PersistUserMessageAsync(
             string idChat,
             string idUser,
-            string userMessage)
+            string userMessage,
+            string kind)
         {
             if (string.IsNullOrEmpty(userMessage))
                 return;
 
-            _datChat.SaveUserMessage(idChat, idUser, userMessage);
+            _datChat.SaveUserMessage(idChat, idUser, userMessage, kind);
 
             await Task.CompletedTask;
         }
@@ -349,18 +350,19 @@ namespace ClbNegChatbot
                 new OllamaSharp.Models.Chat.Message
                 {
                     Role = OllamaSharp.Models.Chat.ChatRole.System,
-                    Content = _configuration["Ollama:SystemPrompt"] ?? "Eres un asistente útil"
+                    Content = _configuration["Ollama:SystemPrompt"] ?? "Tu nombre como LLM es Markong"
                 }
             };
 
             if (!isNewChat)
             {
-                var history = _datChat.GetChatHistory(idChat, idUser, 30);
+                var history = _datChat.GetChatHistory(idChat, idUser, 0);
 
                 // Cada fila de BD es un mensaje individual (user O assistant), no un par.
                 // Se excluye el último registro porque es el mensaje recién guardado sin respuesta aún.
+                // Ignorar entradas vacías o que solo contienen whitespace.
                 foreach (var entry in history
-                    .Where(m => m.Role == "user" || m.Role == "assistant")
+                    .Where(m => (m.Role == "user" || m.Role == "assistant") && !string.IsNullOrWhiteSpace(m.Content))
                     .OrderBy(m => m.MessageOrder)
                     .SkipLast(1))
                 {
@@ -371,16 +373,20 @@ namespace ClbNegChatbot
                     messages.Add(new OllamaSharp.Models.Chat.Message
                     {
                         Role = ollamaRole,
-                        Content = entry.Content
+                        Content = entry.Content.Trim()
                     });
                 }
             }
 
-            messages.Add(new OllamaSharp.Models.Chat.Message
+            // Añadir el mensaje del usuario sólo si contiene texto útil
+            if (!string.IsNullOrWhiteSpace(userMessage))
             {
-                Role = OllamaSharp.Models.Chat.ChatRole.User,
-                Content = userMessage
-            });
+                messages.Add(new OllamaSharp.Models.Chat.Message
+                {
+                    Role = OllamaSharp.Models.Chat.ChatRole.User,
+                    Content = userMessage.Trim()
+                });
+            }
 
             return messages;
         }
@@ -469,11 +475,12 @@ namespace ClbNegChatbot
             string aiResponse,
             string model,
             List<OllamaSharp.Models.Chat.Message> contextMessages,
-            long elapsedMs)
+            long elapsedMs,
+            string kind = "text")
         {
             try
             {
-                _datChat.SaveAiResponse(idChat, idUser, aiResponse, model);
+                _datChat.SaveAiResponse(idChat, idUser, aiResponse, model, kind);
             }
             catch (Exception ex)
             {
@@ -572,6 +579,42 @@ namespace ClbNegChatbot
         {
             // ~4 caracteres por token para texto en español
             return (int)Math.Ceiling(text.Length / 4.0);
+        }
+
+        // Public wrappers for orchestrator
+        public async Task<(string IdChat, bool IsNewChat)> BeginChatAsync(string? requestedIdChat, string idUser)
+        {
+            return await ResolveOrCreateChatAsync(requestedIdChat, idUser);
+        }
+
+        public async Task SaveUserMessageAsync(string idChat, string idUser, string userMessage, string kind)
+        {
+            await PersistUserMessageAsync(idChat, idUser, userMessage, kind);
+        }
+
+        public List<OllamaSharp.Models.Chat.Message> BuildOllamaContextPublic(string idChat, string idUser, string userMessage, bool isNewChat)
+        {
+            return BuildOllamaContext(idChat, idUser, userMessage, isNewChat);
+        }
+
+        public async Task FinalizeAiResponseAsyncPublic(string idChat, string idUser, string aiResponse, string model, List<OllamaSharp.Models.Chat.Message> contextMessages, long elapsedMs, bool isNewChat, string lastUserMessage)
+        {
+            await PersistAiResponseAsync(idChat, idUser, aiResponse, model, contextMessages, elapsedMs);
+
+            if (isNewChat)
+            {
+                try
+                {
+                    var title = await GenerateChatTitleAsync(lastUserMessage, aiResponse);
+                    _datChat.UpdateChatTitle(idChat, title);
+                }
+                catch (Exception ex) { Console.WriteLine($"Error generando título: {ex.Message}"); }
+            }
+        }
+
+        public async Task SaveAiResponseAsyncPublic(string idChat, string idUser, string aiResponse, string model, string kind = "text")
+        {
+            await PersistAiResponseAsync(idChat, idUser, aiResponse, model, new List<OllamaSharp.Models.Chat.Message>(), 0, kind);
         }
     }
 }

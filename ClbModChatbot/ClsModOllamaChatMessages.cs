@@ -10,6 +10,7 @@ namespace ClbModChatbot
         public string? IdChat { get; set; }
         public List<ClsModChatMessageItem> Messages { get; set; } = new List<ClsModChatMessageItem>();
         public bool Stream { get; set; } = false;
+        public string Kind { get; set; } = "text";
     }
 
     /// <summary>
