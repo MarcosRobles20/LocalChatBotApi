@@ -42,7 +42,6 @@ namespace ChatBotApiV2.Services
 
         private async IAsyncEnumerable<ClsModStreamChunk> StreamAndParseOrchestrateAsync(OrchestrateRequestDto payload, [EnumeratorCancellation] CancellationToken ct)
         {
-            // This handles both SSE (stream) and JSON (single payload) from /orchestrate
             var lastThinkingContent = string.Empty;
             var isThinkingState = false;
 
@@ -50,82 +49,64 @@ namespace ChatBotApiV2.Services
             {
                 if (ct.IsCancellationRequested) yield break;
 
-                // Try parse as chunk directly (SSE flow)
                 ClsModStreamChunk? chunk = null;
-                try
-                {
-                    chunk = JsonSerializer.Deserialize<ClsModStreamChunk>(raw, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                }
+                try { chunk = JsonSerializer.Deserialize<ClsModStreamChunk>(raw, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }); }
                 catch { }
 
                 if (chunk != null && !string.IsNullOrEmpty(chunk.Type))
                 {
-                    // dedupe logic similar to chat-stream
+                    // ======= Agent event =======
+                    if (string.Equals(chunk.Type, "agent_event", StringComparison.OrdinalIgnoreCase))
+                    {
+                        object? metadataObj = null;
+                        if (chunk.Metadata is JsonElement je)
+                        {
+                            try { metadataObj = JsonSerializer.Deserialize<Dictionary<string, object>>(je.GetRawText()); }
+                            catch { }
+                        }
+
+                        yield return new ClsModStreamChunk
+                        {
+                            Type = "agent_event",
+                            Content = chunk.Content,
+                            event_type = chunk.event_type,
+                            Metadata = metadataObj,
+                            IdChat = chunk.IdChat,
+                            IsNewChat = chunk.IsNewChat,
+                            Model = chunk.Model,
+                            Tool = chunk.Tool
+                        };
+                        continue;
+                    }
+
+                    // ======= Tokens =======
+                    if (string.Equals(chunk.Type, "token", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(chunk.Content))
+                    {
+                        yield return chunk;  // emitimos directamente token
+                        continue;
+                    }
+
+                    // ======= Thinking =======
                     if (string.Equals(chunk.Type, "thinking_start", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (isThinkingState) continue;
-                        isThinkingState = true; lastThinkingContent = string.Empty;
-                        yield return chunk; continue;
-                    }
+                    { if (!isThinkingState) { isThinkingState = true; lastThinkingContent = string.Empty; yield return chunk; } continue; }
+
                     if (string.Equals(chunk.Type, "thinking", StringComparison.OrdinalIgnoreCase))
-                    {
-                        isThinkingState = true; lastThinkingContent = chunk.Content ?? string.Empty;
-                        yield return chunk; continue;
-                    }
+                    { isThinkingState = true; lastThinkingContent = chunk.Content ?? string.Empty; yield return chunk; continue; }
+
                     if (string.Equals(chunk.Type, "thinking_end", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (!isThinkingState) continue;
-                        isThinkingState = false; yield return chunk; continue;
-                    }
-                    if (string.Equals(chunk.Type, "response", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (!string.IsNullOrEmpty(lastThinkingContent) && NormalizeWhitespace(chunk.Content) == NormalizeWhitespace(lastThinkingContent))
-                        { lastThinkingContent = string.Empty; continue; }
-                        yield return chunk; continue;
-                    }
-                    // done/error/image/etc.
-                    yield return chunk;
+                    { if (isThinkingState) { isThinkingState = false; yield return chunk; } continue; }
+
+                    // ======= Done/Error =======
+                    if (string.Equals(chunk.Type, "done", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(chunk.Type, "error", StringComparison.OrdinalIgnoreCase))
+                    { isThinkingState = false; lastThinkingContent = string.Empty; yield return chunk; continue; }
+
+                    yield return chunk; // fallback
                     continue;
                 }
 
-                // If not a chunk, maybe it's full JSON orchestrate response
-                OrchestrateResponseDto? resp = null;
-                try
-                {
-                    resp = JsonSerializer.Deserialize<OrchestrateResponseDto>(raw, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                }
-                catch { }
-
-                if (resp != null && !string.IsNullOrEmpty(resp.action))
-                {
-                    var action = resp.action.ToLowerInvariant();
-                    if (action == "text_to_image" || action == "image_to_image")
-                    {
-                        yield return new ClsModStreamChunk { Type = "image", Content = resp.image_path };
-                        yield return new ClsModStreamChunk { Type = "done", Model = payload.model };
-                    }
-                    else
-                    {
-                        // Build a single response content that includes main content + sources (if any)
-                        var combined = new StringBuilder();
-                        if (!string.IsNullOrEmpty(resp.content)) combined.Append(resp.content);
-                        if (resp.sources != null && resp.sources.Any())
-                        {
-                            if (combined.Length > 0) combined.Append("\n\n");
-                            combined.Append("Fuentes:\n");
-                            combined.Append(string.Join("\n", resp.sources.Select(s => $"- {s.title} ({s.url})")));
-                        }
-                        if (combined.Length > 0)
-                            yield return new ClsModStreamChunk { Type = "response", Content = combined.ToString() };
-
-                        yield return new ClsModStreamChunk { Type = "done", Model = payload.model };
-                    }
-                }
-                else
-                {
-                    // fallback: emit as response text
-                    yield return new ClsModStreamChunk { Type = "response", Content = raw };
-                }
+                // fallback: raw response
+                yield return new ClsModStreamChunk { Type = "response", Content = raw };
             }
         }
 
@@ -136,61 +117,68 @@ namespace ChatBotApiV2.Services
 
             await foreach (var raw in streamFactory())
             {
-                if (ct.IsCancellationRequested)
-                    yield break;
+                if (ct.IsCancellationRequested) yield break;
 
                 ClsModStreamChunk? chunk = null;
-                try
-                {
-                    chunk = JsonSerializer.Deserialize<ClsModStreamChunk>(raw, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to deserialize raw chunk from Python: {Raw}", raw);
-                }
+                try { chunk = JsonSerializer.Deserialize<ClsModStreamChunk>(raw, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }); }
+                catch (Exception ex) { _logger.LogWarning(ex, "Failed to deserialize raw chunk from Python: {Raw}", raw); }
 
                 if (chunk != null)
                 {
-                    if (string.Equals(chunk.Type, "thinking_start", StringComparison.OrdinalIgnoreCase))
+                    // ======= Agent event =======
+                    if (string.Equals(chunk.Type, "agent_event", StringComparison.OrdinalIgnoreCase))
                     {
-                        if (isThinkingState) continue;
-                        isThinkingState = true; lastThinkingContent = string.Empty;
-                        yield return chunk; continue;
+                        object? metadataObj = null;
+                        if (chunk.Metadata is JsonElement je)
+                        {
+                            try { metadataObj = JsonSerializer.Deserialize<Dictionary<string, object>>(je.GetRawText()); }
+                            catch { }
+                        }
+
+                        yield return new ClsModStreamChunk
+                        {
+                            Type = "agent_event",
+                            Content = chunk.Content,
+                            event_type = chunk.event_type,
+                            Metadata = metadataObj,
+                            IdChat = chunk.IdChat,
+                            IsNewChat = chunk.IsNewChat,
+                            Model = chunk.Model,
+                            Tool = chunk.Tool
+                        };
+                        continue;
                     }
+
+                    // ======= Tokens =======
+                    if (string.Equals(chunk.Type, "token", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(chunk.Content))
+                    {
+                        yield return chunk;
+                        continue;
+                    }
+
+                    // ======= Thinking =======
+                    if (string.Equals(chunk.Type, "thinking_start", StringComparison.OrdinalIgnoreCase))
+                    { if (!isThinkingState) { isThinkingState = true; lastThinkingContent = string.Empty; yield return chunk; } continue; }
 
                     if (string.Equals(chunk.Type, "thinking", StringComparison.OrdinalIgnoreCase))
-                    {
-                        isThinkingState = true; lastThinkingContent = (chunk.Content ?? string.Empty);
-                        yield return chunk; continue;
-                    }
+                    { isThinkingState = true; lastThinkingContent = chunk.Content ?? string.Empty; yield return chunk; continue; }
 
                     if (string.Equals(chunk.Type, "thinking_end", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (!isThinkingState) continue;
-                        isThinkingState = false; yield return chunk; continue;
-                    }
+                    { if (isThinkingState) { isThinkingState = false; yield return chunk; } continue; }
 
-                    if (string.Equals(chunk.Type, "response", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(chunk.Content))
-                    {
-                        if (!string.IsNullOrEmpty(lastThinkingContent) && NormalizeWhitespace(chunk.Content) == NormalizeWhitespace(lastThinkingContent))
-                        { lastThinkingContent = string.Empty; continue; }
-                    }
+                    // ======= Done/Error =======
+                    if (string.Equals(chunk.Type, "done", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(chunk.Type, "error", StringComparison.OrdinalIgnoreCase))
+                    { isThinkingState = false; lastThinkingContent = string.Empty; yield return chunk; continue; }
 
-                    if (string.Equals(chunk.Type, "done", StringComparison.OrdinalIgnoreCase) || string.Equals(chunk.Type, "error", StringComparison.OrdinalIgnoreCase))
-                    {
-                        isThinkingState = false; lastThinkingContent = string.Empty;
-                        yield return chunk; continue;
-                    }
-
-                    yield return chunk;
+                    yield return chunk; // fallback
+                    continue;
                 }
-                else
-                {
-                    yield return new ClsModStreamChunk { Type = "response", Content = raw };
-                }
+
+                // fallback: raw response
+                yield return new ClsModStreamChunk { Type = "response", Content = raw };
             }
         }
-
         private static string NormalizeWhitespace(string input)
         {
             if (string.IsNullOrEmpty(input)) return string.Empty;
